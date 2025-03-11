@@ -40,7 +40,7 @@ def arbitraryInt { body: => Unit / Generator[Int] }: Unit =
     }
   }
 
-// arbitrary int generator for quantifier version that explicitely takes the generator as input
+// same as other arbitraryInt but for quantifier version that explicitely takes the generator as input
 def arbitraryInt { body: {Generator[Int]} => Unit }: Unit = {
   try body{g} with g: Generator[Int] {
     def generate() = resume {   

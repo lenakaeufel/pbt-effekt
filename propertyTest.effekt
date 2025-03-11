@@ -99,16 +99,16 @@ def forall[A](name: String, n: Int)
     body(x)
     if(successCounter == n) {
       val duration = Duration::diff(startTime, bench::relativeTimestamp())
-      do successForall(name, n, duration) //the body didn't fail for any of the generated values -> success
+      do successForall(name, n, duration) 
       }
   } with Assertion { 
     def assert(condition, msg) = 
       if (condition) {
         successCounter = successCounter + 1 
         resume(())}
-      else {// the body fails for one generated value -> failure
+      else {
         val duration = Duration::diff(startTime, bench::relativeTimestamp())
-        do failureForall(name, successCounter, msg ++ "  failed on input:\n    - " ++ genericShow(x), duration)
+        do failureForall(name, successCounter, msg ++ "\n  failed on input:\n    1. " ++ genericShow(x), duration)
         do stop()
       }
   }
@@ -128,16 +128,16 @@ def forall[A](name: String, n: Int)
     body(x)
     if(successCounter == n) {
       val duration = Duration::diff(startTime, bench::relativeTimestamp())
-      do successForall(name, n, duration) //the body didn't fail for any of the generated values -> success
+      do successForall(name, n, duration) 
       }
   } with Assertion { 
     def assert(condition, msg) = 
       if (condition) {
         successCounter = successCounter + 1 
         resume(())}
-      else {// the body fails for one generated value -> failure
+      else {
         val duration = Duration::diff(startTime, bench::relativeTimestamp())
-        do failureForall(name, successCounter, msg ++ "  failed on input:\n    - " ++ genericShow(x), duration)
+        do failureForall(name, successCounter, msg ++ "\n  failed on input:\n    1. " ++ genericShow(x), duration)
         do stop()
       }
   }
@@ -156,8 +156,8 @@ def forall[A, B](name: String, n: Int)
     body(x, y)
     if(successCounter == n) {
       val duration = Duration::diff(startTime, bench::relativeTimestamp())
-      do successForall(name, n, duration) //the body didn't fail for any of the generated values -> success
-      do stop() // TODO why necessary?
+      do successForall(name, n, duration) 
+      do stop()
       }
   } with Assertion { 
     def assert(condition, msg) = 
@@ -165,9 +165,9 @@ def forall[A, B](name: String, n: Int)
         successCounter = successCounter + 1 
         resume(())
         }
-      else {// the body fails for one generated value -> failure
+      else {
         val duration = Duration::diff(startTime, bench::relativeTimestamp())
-        do failureForall(name, successCounter, msg ++ "  failed on inputs:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y), duration)
+        do failureForall(name, successCounter, msg ++ "\n  failed on inputs:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y), duration)
         do stop()
       }
   }
@@ -187,8 +187,8 @@ def forall[A, B, C](name: String, n: Int)
     body(x, y, z)
     if(successCounter == n) {
       val duration = Duration::diff(startTime, bench::relativeTimestamp())
-      do successForall(name, n, duration) //the body didn't fail for any of the generated values -> success
-      do stop() // TODO why necessary?
+      do successForall(name, n, duration) 
+      do stop() 
       }
   } with Assertion { 
     def assert(condition, msg) = 
@@ -196,9 +196,9 @@ def forall[A, B, C](name: String, n: Int)
         successCounter = successCounter + 1 
         resume(())
         }
-      else {// the body fails for one generated value -> failure
+      else {
         val duration = Duration::diff(startTime, bench::relativeTimestamp())
-        do failureForall(name, successCounter, msg ++ "  failed on inputs:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y) ++ "\n    3. " ++ genericShow(z), duration)
+        do failureForall(name, successCounter, msg ++ "\n  failed on inputs:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y) ++ "\n    3. " ++ genericShow(z), duration)
         do stop()
       }
   }
@@ -223,10 +223,10 @@ def exists[A](name: String, n: Int)
     def assert(condition, msg) = 
       if (condition) {
         val duration = Duration::diff(startTime, bench::relativeTimestamp())
-        do successExists(name, triedCounter, " Found example value " ++ genericShow(x), duration)
+        do successExists(name, triedCounter, " example value:\n    1. " ++ genericShow(x), duration)
         do stop()
         }
-      else {// the body fails for one generated value -> continue searching
+      else {
         triedCounter = triedCounter + 1 
         resume(())
       }
@@ -252,10 +252,10 @@ def exists[A, B](name: String, n: Int)
     def assert(condition, msg) = 
       if (condition) {
         val duration = Duration::diff(startTime, bench::relativeTimestamp())
-        do successExists(name, triedCounter, " Found example values:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y), duration)
+        do successExists(name, triedCounter, "\n  example values:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y), duration)
         do stop()
         }
-      else {// the body fails for one generated value -> continue searching
+      else {
         triedCounter = triedCounter + 1 
         resume(())
       }
@@ -332,7 +332,7 @@ def suite(name: String, printTimes: Bool) { body: => Unit / { Test, Formatted } 
         println("✕".red ++ " " ++ name ++ duration.ms)
         if(passed == 1){
           println("  ! Falsified after " ++ show(passed).red ++ " passed test:" ++ duration.ms)
-          } else {println("  ! Falsified after " ++ show(passed).red ++ " passed tests:" ++ duration.ms)}
+          } else { println("  ! Falsified after " ++ show(passed).red ++ " passed tests:" ++ duration.ms) }
         println("  " ++ msg.red)
         resume(())
       }
@@ -343,9 +343,9 @@ def suite(name: String, printTimes: Bool) { body: => Unit / { Test, Formatted } 
         //println("✓".green ++ " " ++ name ++ ", found after " ++ tried.show ++ " tests " ++ duration.ms)
         println("✓".green ++ " " ++ name  ++ duration.ms)
         if(tried == 1){
-          println(" Found value after " ++ tried.show ++ " tried input")
-        } else {println(" Found value after " ++ tried.show ++ " tried inputs")}
-        println(msg)
+          println("  Verified after " ++ tried.show ++ " tried input")
+        } else { println("  Verified after " ++ tried.show ++ " tried inputs") }
+        println(" " ++ msg.green)
         resume(())
       }
 
@@ -353,7 +353,7 @@ def suite(name: String, printTimes: Bool) { body: => Unit / { Test, Formatted } 
       def failureExists(name, tried, duration) = {
         failedExists = failedExists + 1
         println("✕".red ++ " " ++ name ++ duration.ms)
-        println(" Tried " ++ tried.show ++ " different inputs but all failed" ++ duration.ms)
+        println("  ! Tried " ++ tried.show ++ " different inputs but all failed" ++ duration.ms)
         resume(())
       }
     }
@@ -386,5 +386,3 @@ def mainSuite(name: String) { body: => Unit / { Test, Formatted } }: Unit = {
   val exitCode = if (result) 0 else 1
   exit(exitCode)
 }
-
-def main() = {println("main")}
