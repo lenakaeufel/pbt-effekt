@@ -100,7 +100,7 @@ def forall[A](name: String, n: Int)
     if(successCounter == n) {
       val duration = Duration::diff(startTime, bench::relativeTimestamp())
       do successForall(name, n, duration) 
-      }
+    }
   } with Assertion { 
     def assert(condition, msg) = 
       if (condition) {
@@ -129,12 +129,13 @@ def forall[A](name: String, n: Int)
     if(successCounter == n) {
       val duration = Duration::diff(startTime, bench::relativeTimestamp())
       do successForall(name, n, duration) 
-      }
+    }
   } with Assertion { 
     def assert(condition, msg) = 
-      if (condition) {
+      if(condition) {
         successCounter = successCounter + 1 
-        resume(())}
+        resume(())
+      }
       else {
         val duration = Duration::diff(startTime, bench::relativeTimestamp())
         do failureForall(name, successCounter, msg ++ "\n  failed on input:\n    1. " ++ genericShow(x), duration)
@@ -158,13 +159,13 @@ def forall[A, B](name: String, n: Int)
       val duration = Duration::diff(startTime, bench::relativeTimestamp())
       do successForall(name, n, duration) 
       do stop()
-      }
+    }
   } with Assertion { 
     def assert(condition, msg) = 
-      if (condition) {
+      if(condition) {
         successCounter = successCounter + 1 
         resume(())
-        }
+      }
       else {
         val duration = Duration::diff(startTime, bench::relativeTimestamp())
         do failureForall(name, successCounter, msg ++ "\n  failed on inputs:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y), duration)
@@ -192,10 +193,10 @@ def forall[A, B, C](name: String, n: Int)
       }
   } with Assertion { 
     def assert(condition, msg) = 
-      if (condition) {
+      if(condition) {
         successCounter = successCounter + 1 
         resume(())
-        }
+      }
       else {
         val duration = Duration::diff(startTime, bench::relativeTimestamp())
         do failureForall(name, successCounter, msg ++ "\n  failed on inputs:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y) ++ "\n    3. " ++ genericShow(z), duration)
@@ -215,7 +216,7 @@ def exists[A](name: String, n: Int)
 
   try {
     body(x)
-    if(triedCounter == n){
+    if(triedCounter == n) {
       val duration = Duration::diff(startTime, bench::relativeTimestamp())
       do failureExists(name, triedCounter, duration) 
     }
@@ -225,7 +226,7 @@ def exists[A](name: String, n: Int)
         val duration = Duration::diff(startTime, bench::relativeTimestamp())
         do successExists(name, triedCounter, " example value:\n    1. " ++ genericShow(x), duration)
         do stop()
-        }
+      }
       else {
         triedCounter = triedCounter + 1 
         resume(())
@@ -244,17 +245,17 @@ def exists[A, B](name: String, n: Int)
 
   try {
     body(x, y)
-    if(triedCounter == n){
+    if(triedCounter == n) {
       val duration = Duration::diff(startTime, bench::relativeTimestamp())
       do failureExists(name, triedCounter, duration)
     } 
   } with Assertion { 
     def assert(condition, msg) = 
-      if (condition) {
+      if(condition) {
         val duration = Duration::diff(startTime, bench::relativeTimestamp())
         do successExists(name, triedCounter, "\n  example values:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y), duration)
         do stop()
-        }
+      }
       else {
         triedCounter = triedCounter + 1 
         resume(())

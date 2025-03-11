@@ -109,9 +109,10 @@ def main() = {
     // (xs ++ ys).drop(n) === if n <= len(xs) then (xs.drop(n)) ++ ys else ys.drop(n - len(xs))
     forall[List[Int], List[Int], Int]("drop: concatenation ", 10)
       { (xs, ys, n) =>
-        var res = if(n <= xs.size){
-          xs.drop(n).append(ys) } 
-          else{ ys.drop(n - xs.size) }
+        val res = if(n <= xs.size) {
+          xs.drop(n).append(ys) 
+          } 
+          else { ys.drop(n - xs.size) }
         assertEqual(
           (xs.append(ys).drop(n)),
           res

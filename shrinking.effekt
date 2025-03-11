@@ -1,0 +1,119 @@
+import stream
+import stringbuffer
+
+// Implementation sketch of the tree-based shrinking approach described in the thesis
+// NOTE: This is experimental code not yet integrated into Elex
+// FIXME: Current limitations:
+//  - Does not reliably terminate when children/siblings are exhausted
+//  - May return invalid shrink values as a result
+// TODO: Further research and testing needed before integration
+
+def shrinkerInt(v: Int) = {
+  var shrink: Int = v / 2
+  while (shrink != 0 && shrink != v) {
+    do emit(shrink)
+    do emit(neg(shrink))
+    shrink = shrink / 2
+  }
+  do emit(0)
+}
+
+def shrinkListLayer[A](list: List[A]) { shrinkOne: A => Unit / emit[A] }: Unit / emit[List[A]] =
+  if (list is Nil()) {
+    ()
+  } else {
+    // Try to remove one element
+    list.foreachIndex { (i, x) =>
+      do emit(list.deleteAt(i))
+    }
+
+    // Try to shrink one element.
+    list.foreachIndex { (i, x) =>
+      for[A] { shrinkOne(x) } { newX =>
+        do emit(list.updateAt(i) { x => newX })
+      }
+    }
+  }
+
+interface TReader[A] {
+  def nextSibling(): A / stop
+  def nextChild(): A / stop
+}
+
+// this is not actually specific to lists of ints, but it's easier to test with
+def shrinkerList(list: List[Int]) { consumer: => Unit / TReader[List[Int]] } = {
+  var currentList: List[Int] = list
+  var next = box { None() }
+
+  def makeNextOf(l: List[Int]) = {
+    next = box {
+      try {
+        shrinkListLayer[Int](l) { shrinkerInt }
+        next = box { None() }
+        None()
+      } with emit[List[Int]] { v =>
+        next = box { resume(()) }
+        currentList = v
+        Some(v)
+      }
+    }
+  }
+
+  try consumer() with TReader[List[Int]] {
+    def nextSibling() = resume {
+      next().getOrElse { println("no more siblings!"); do stop() }
+    }
+    def nextChild() = resume {
+      makeNextOf(currentList)
+      currentList = next().getOrElse { println("no more kids!"); do stop() }
+      currentList
+    }
+  }
+}
+
+def shrinkGeneral[A](initial: A, depth: Int) { checkProperty: A => Bool }: A / TReader[A] = {
+  def log(s: String) = println(" ".repeat(depth * 2) ++ s)
+  if (depth > 10) {
+    log("reached recursion depth!")
+    initial
+  } else {
+    var last = initial
+    log("new shrinking: ${genericShow(initial)}")
+    try {
+      def go(current: A): Unit = {
+        log("go(${genericShow(current)})")
+        log("checkProperty(${genericShow(current)}) == ${checkProperty(current).show}")
+
+        if (checkProperty(current)) {
+          last = current
+          go(do nextChild())
+        } else {
+          // try a different sibling and recurse
+          val sibling: A = do nextSibling()
+          log("jumping into sibling: ${genericShow(sibling)}, oldLast: ${genericShow(last)}")
+          last = shrinkGeneral(sibling, depth + 1) {checkProperty}
+          log("jumping out of sibling: ${genericShow(sibling)}, newLast: ${genericShow(last)}")
+        }
+
+        log("escaped go(${genericShow(current)})")
+      }
+      go(initial)
+      last
+    } with stop {
+      log("saw a stop, last last is: ${genericShow(last)}!")
+      last
+    }
+  }
+}
+
+def main() = {
+  val initial = [12, 40]
+  with shrinkerList(initial)
+  val shrunk = shrinkGeneral(initial, /* depth */ 0) {
+    // property: `[a, b] => a < b; _ => false`
+    case Cons(x, Cons(y, Nil())) => x < y
+    case _ => false
+  }
+  // ideal shrink: [0, 1]
+  println("~> shrunk to ${shrunk.show}")
+}
