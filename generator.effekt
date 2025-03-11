@@ -1,0 +1,299 @@
+import stream
+
+extern js"""
+  function getRandomInt(min, max) {
+    const minCeiled = Math.ceil(min);
+    const maxFloored = Math.floor(max);
+    return Math.floor(Math.random() * (maxFloored - minCeiled) + minCeiled); // The maximum is exclusive and the minimum is inclusive
+  }
+"""
+
+extern def randomInt(minInclusive: Int, maxExclusive: Int): Int =
+  js"getRandomInt(${minInclusive}, ${maxExclusive})"
+
+/// Represents push stream based generators with manual shrinking
+interface Generator[T] {
+  /// Generates a push stream of values of type `T` 
+  def generate(): Unit/emit[T]
+  
+  /// Produces a puh stream of simplified (shrunk) versions of a given value of type `T`
+  def shrink(v: T): Unit/emit[T]
+}
+
+def arbitraryInt { body: => Unit / Generator[Int] }: Unit =
+  try body() with Generator[Int] {
+    def generate() = resume {
+      //[0, -1, 1, int.minVal, int.maxVal, -2, 2].each // This can reduce the need for shrinking by emitting common edge cases first
+      while (true) {
+        do emit(randomInt(-50, 50))
+      }
+    }
+
+    def shrink(v: Int) = resume {
+      var shrunk: Int = v/2
+      while (shrunk != 0 && shrunk != v) {
+        do emit(shrunk)
+        do emit(neg(shrunk))
+        shrunk = shrunk / 2 // in case of odd numbers, rounds to the smaller half (e.g. 5 -> round(2.5) = 2 )
+      }
+      do emit(0)
+    }
+  }
+
+// arbitrary int generator for quantifier version that explicitely takes the generator as input
+def arbitraryInt { body: {Generator[Int]} => Unit }: Unit = {
+  try body{g} with g: Generator[Int] {
+    def generate() = resume {   
+      while (true) {
+        do emit(randomInt(-50, 50))
+      }
+    }
+
+    def shrink(v: Int) = resume {
+      var shrunk: Int = v/2
+      while (shrunk != 0 && shrunk != v) {
+        do emit(shrunk)
+        do emit(neg(shrunk))
+        shrunk = shrunk / 2 // in case of odd numbers, rounds to the smaller half (e.g. 5 -> round(2.5) = 2 )
+      }
+      do emit(0)
+    }
+  }
+}
+
+def chooseInt(minInclusive: Int, maxExclusive: Int) { body: => Unit / Generator[Int] }: Unit =
+  try body() with Generator[Int] {
+    def generate() = resume {
+      while (true) {
+        do emit(randomInt(minInclusive, maxExclusive))
+      }
+    }
+
+    def shrink(v: Int) = resume {
+      var shrunk: Int = v/2
+      while (shrunk != 0 && shrunk != v) {
+        do emit(shrunk)
+        do emit(neg(shrunk))
+        shrunk = shrunk / 2 // in case of odd numbers, rounds to the smaller half (e.g. 5 -> round(2.5) = 2 )
+      }
+      do emit(0)
+    }
+  }
+
+def arbitraryBool { body: => Unit/Generator[Bool] }: Unit = 
+  try body() with Generator[Bool]{
+    def generate() = resume {
+      while (true) {
+        do emit(random() > 0.5)
+      }
+    }
+
+    def shrink(v: Bool) = resume {
+      var out = v
+      if(v){
+        out = false
+      }else {
+        out = true
+      }
+      do emit(out)
+    }
+  }
+
+def arbitraryDouble { body: => Unit/Generator[Double] }: Unit = 
+  try body() with Generator[Double]{
+    def generate() = resume {
+      val min = -1000.0 // TODO use double min value
+      val max = 1000.0  // TODO use double max value
+      while (true) {
+        do emit(min + (max - min) * random())
+      }
+    }
+
+    def shrink(v: Double) = resume {
+      var shrink: Double = v/2.0
+      while (shrink != 0.0 && shrink != v) {
+        do emit(shrink)
+        do emit(neg(shrink)) 
+        shrink = shrink / 2.0 // in case of odd numbers, rounds to the smaller half (e.g. 5 -> round(2.5) = 2 )
+      }
+      do emit(0.0)
+    }
+  }
+
+
+def arbitraryChar { body: => Unit / Generator[Char] }: Unit =
+  try body() with Generator[Char] {
+    def generate() = resume {
+      // ASCII printable characters range from 32 to 126
+      while (true) {
+        do emit(randomInt(32, 127).toChar) 
+      }
+    }
+
+    def shrink(v: Char) = resume { <> }
+  }
+
+def arbitraryString { body: => Unit / Generator[String] }: Unit / Generator[Char] = {
+  try body() with Generator[String] {
+    def generate() = resume {
+      while (true) {
+        val string: String = collectString { 
+          with boundary;
+          with limit[Char](randomInt(1, 20))
+          do generate[Char]() 
+        }
+        do emit(string)
+      }
+    }
+
+    def shrink(v: String) = resume { <> }
+  }
+}
+
+def arbitraryString(len: Int) { body: => Unit / Generator[String] }: Unit / Generator[Char] = {
+  try body() with Generator[String] {
+    def generate() = resume {
+      while (true) {
+        val string: String = collectString { 
+          with boundary;
+          with limit[Char](len)
+          do generate[Char]() 
+        }
+        do emit(string)
+      }
+    }
+
+    def shrink(v: String) = resume { <> }
+  }
+}
+
+def arbitraryList[T] { body: => Unit / Generator[List[T]]} : Unit / Generator[T] = {
+  try body() with Generator[List[T]]{ 
+    def generate() = resume {
+      while (true) {
+        val list = collectList[T]{ 
+          with boundary;
+          with limit[T](randomInt(1, 10))
+          do generate[T]()
+        }
+        do emit(list)
+      }
+    }
+
+    def shrink(v: List[T]) = resume { <> }
+  }
+}
+
+def arbitraryList[T](len: Int) { body: => Unit/Generator[List[T]]} : Unit / Generator[T] = {
+  try body() with Generator[List[T]]{ 
+    def generate() = resume {
+      while (true) {
+        val list = collectList[T]{ 
+          with boundary;
+          with limit[T](len)
+          do generate[T]()
+        }
+        do emit(list)
+      }
+    }
+
+    def shrink(v: List[T]) = resume { <> }
+  }
+}
+
+def evenNumbers { body: => Unit / Generator[Int] }: Unit = 
+  try body() with Generator[Int] {
+    def generate() = resume {
+      while(true) {
+        val nextEmit = randomInt(-50, 50)
+        if(nextEmit.mod(2) == 0)
+          do emit(nextEmit)
+      }
+    }
+
+    def shrink(v: Int) = resume {
+      // we know v is even because the generator only produces even numbers
+      var shrink = v - 2
+      while(shrink != 0 && shrink != v){
+        do emit(shrink)
+        shrink = shrink / 2 
+      }
+      do emit(0)
+    }
+  }
+
+def alphabeticChar { body: => Unit / Generator[Char] }: Unit = {
+  try body() with Generator[Char] {
+    def generate() = resume {
+      // ASCII printable characters range from 32 to 126
+      val min = 32
+      val max = 127 // max is exclusive in randomInt
+      while (true) {
+        do emit(randomInt(65, 91).toChar) 
+      }
+    }
+
+    def shrink(v: Char) = resume { <> }
+  }
+}
+
+// interleave for push streams
+def interleave[T](n: Int)
+  { stream1: => Unit / emit[T] }
+  { stream2: => Unit / emit[T] }
+  : Unit / emit[T] = {
+  with boundary
+  with limit[T](n)
+  
+  var next1 = box { () => None() }
+  next1 = box {
+    try {
+      stream1(); None()
+    } with emit[T] { (v) =>
+      next1 = box { resume(()) }
+      Some(v)
+    }
+  }
+
+  var next2 = box { () => None() }
+  next2 = box {
+    try {
+      stream2(); None()
+    } with emit[T] { (v) =>
+      next2 = box { resume(()) }
+      Some(v)
+    }
+  }
+
+  def loop(): Unit = {
+    (next1(), next2()) match {
+      case (None(), None()) => ()
+      case (None(), Some(v2)) =>
+        do emit(v2)
+        while (next2() is Some(v2)) {
+          do emit(v2)
+        }
+      case (Some(v1), None()) =>
+        do emit(v1)
+        while (next1() is Some(v1)) {
+          do emit(v1)
+        }
+      case (Some(v1), Some(v2)) =>
+        do emit(v1)
+        do emit(v2)
+
+        loop()
+    }
+  }
+
+  loop()
+}
+
+
+
+
+
+
+
+
+

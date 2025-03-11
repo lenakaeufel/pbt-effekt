@@ -1,0 +1,390 @@
+import bench
+import process
+import stream
+import tty
+
+import generator
+
+interface Assertion {
+  def assert(condition: Bool, msg: String): Unit
+}
+
+def assertTrue(condition: Bool, msg: String) =
+  do assert(condition, msg)
+
+def assertTrue(condition: Bool) =
+  do assert(condition, "Assertion failed")
+
+def assertFalse(condition: Bool, msg: String) =
+  do assert(not(condition), msg)
+
+def assertFalse(condition: Bool) =
+  do assert(not(condition), "Assertion failed")
+
+def assert(obtained: Int, expected: Int, msg: String): Unit / Assertion =
+  assertEqual(obtained, expected, msg) { (x, y) => x == y }
+
+def assert(obtained: Bool, expected: Bool, msg: String): Unit / Assertion =
+  assertEqual(obtained, expected, msg) { (x, y) => x == y }
+
+def assert(obtained: Char, expected: Char, msg: String): Unit / Assertion =
+  assertEqual(obtained, expected, msg) { (x, y) => x == y }
+
+def assert(obtained: String, expected: String, msg: String): Unit / Assertion =
+  assertEqual(obtained, expected, msg) { (x, y) => x == y }
+
+def assert(obtained: Int, expected: Int): Unit / { Assertion, Formatted } =
+  assertEqual(obtained, expected) { (x, y) => x == y } { x => show(x) }
+
+def assert(obtained: Bool, expected: Bool): Unit / { Assertion, Formatted } =
+  assertEqual(obtained, expected) { (x, y) => x == y } { x => show(x) }
+
+def assert(obtained: Char, expected: Char): Unit / { Assertion, Formatted } =
+  assertEqual(obtained, expected) { (x, y) => x == y } { x => show(x) }
+
+def assert(obtained: String, expected: String): Unit / { Assertion, Formatted } =
+  assertEqual(obtained, expected) { (x, y) => x == y } { x => show(x) }
+
+def assertEqual[A](obtained: A, expected: A, msg: String): Unit / Assertion =
+  assertEqual(obtained, expected, msg) { (x, y) => x.equals(y) }
+
+def assertEqual[A](obtained: A, expected: A): Unit / { Assertion, Formatted } =
+  assertEqual(obtained, expected) { (x, y) => x.equals(y) } { x => x.genericShow }
+
+def assertEqual[A](obtained: A, expected: A, msg: String) { equals: (A, A) => Bool }: Unit / Assertion =
+  do assert(equals(obtained, expected), msg)
+
+def assertEqual[A](obtained: A, expected: A) { equals: (A, A) => Bool } { show: A => String }: Unit / { Assertion, Formatted } =
+  do assert(equals(obtained, expected), Formatted::tryEmit(Escape::RESET) ++ "Expected: ".dim ++ show(expected).green ++ "\n  Obtained: ".dim ++ show(obtained).red)
+  // NOTE:                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  //             Here's an accidental capture! Can we prevent this somehow nicely?
+
+interface Test {
+  def successUnit(name: String, duration: Int): Unit
+  def successForall(name: String, passed: Int, duration: Int): Unit
+  def successExists(name: String, tried: Int, msg: String, duration: Int): Unit
+  def failureUnit(name: String, msg: String, duration: Int): Unit
+  def failureForall(name: String, passed: Int, msg: String, duration: Int): Unit
+  def failureExists(name: String, tried: Int, duration: Int): Unit
+}
+
+/// Runs the `body` as a test under the given `name`
+/// See `suite` for examples.
+def unittest(name: String) { body: => Unit / Assertion } = {
+  val startTime = bench::relativeTimestamp()
+  try {
+    body()
+    val duration = Duration::diff(startTime, bench::relativeTimestamp())
+    do successUnit(name, duration)
+  } with Assertion {
+    def assert(condition, msg) =
+      if (condition) resume(())
+      else {
+        val duration = Duration::diff(startTime, bench::relativeTimestamp())
+        do failureUnit(name, msg, duration)
+      }
+  }
+}
+
+// forall version that uses the closest generator in scope
+def forall[A](name: String, n: Int)
+  { body: A => Unit / Assertion }: Unit / { Test, Generator[A] } = {
+
+  val startTime = bench::relativeTimestamp()
+  var successCounter = 0
+  with boundary;
+  with val x = for[A] { with limit[A](n + 1); do generate[A]() } 
+
+  try {
+    body(x)
+    if(successCounter == n) {
+      val duration = Duration::diff(startTime, bench::relativeTimestamp())
+      do successForall(name, n, duration) //the body didn't fail for any of the generated values -> success
+      }
+  } with Assertion { 
+    def assert(condition, msg) = 
+      if (condition) {
+        successCounter = successCounter + 1 
+        resume(())}
+      else {// the body fails for one generated value -> failure
+        val duration = Duration::diff(startTime, bench::relativeTimestamp())
+        do failureForall(name, successCounter, msg ++ "  failed on input:\n    - " ++ genericShow(x), duration)
+        do stop()
+      }
+  }
+}
+
+// forall version that explicitely gets the generators as inputs
+def forall[A](name: String, n: Int)
+  { g: Generator[A]}
+  { body: A => Unit / Assertion }: Unit / {Test} = {
+
+  val startTime = bench::relativeTimestamp()
+  var successCounter = 0
+  with boundary
+  with val x = for[A] {with limit[A](n + 1); g.generate[A]()}
+
+  try {
+    body(x)
+    if(successCounter == n) {
+      val duration = Duration::diff(startTime, bench::relativeTimestamp())
+      do successForall(name, n, duration) //the body didn't fail for any of the generated values -> success
+      }
+  } with Assertion { 
+    def assert(condition, msg) = 
+      if (condition) {
+        successCounter = successCounter + 1 
+        resume(())}
+      else {// the body fails for one generated value -> failure
+        val duration = Duration::diff(startTime, bench::relativeTimestamp())
+        do failureForall(name, successCounter, msg ++ "  failed on input:\n    - " ++ genericShow(x), duration)
+        do stop()
+      }
+  }
+}
+
+def forall[A, B](name: String, n: Int)
+  { body: (A, B) => Unit / Assertion }: Unit / {Test, Generator[A], Generator[B]} = {
+
+  val startTime = bench::relativeTimestamp()
+  var successCounter = 0
+  with boundary;
+  with val x = for[A] {with limit[A](n + 1); do generate[A]()}
+  with val y = for[B] {with limit[B](n + 1); do generate[B]()}
+
+  try {
+    body(x, y)
+    if(successCounter == n) {
+      val duration = Duration::diff(startTime, bench::relativeTimestamp())
+      do successForall(name, n, duration) //the body didn't fail for any of the generated values -> success
+      do stop() // TODO why necessary?
+      }
+  } with Assertion { 
+    def assert(condition, msg) = 
+      if (condition) {
+        successCounter = successCounter + 1 
+        resume(())
+        }
+      else {// the body fails for one generated value -> failure
+        val duration = Duration::diff(startTime, bench::relativeTimestamp())
+        do failureForall(name, successCounter, msg ++ "  failed on inputs:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y), duration)
+        do stop()
+      }
+  }
+}
+
+def forall[A, B, C](name: String, n: Int)
+  { body: (A, B, C) => Unit / Assertion }: Unit / {Test, Generator[A], Generator[B], Generator[C]} = {
+
+  val startTime = bench::relativeTimestamp()
+  var successCounter = 0
+  with boundary;
+  with val x = for[A] {with limit[A](n + 1); do generate[A]()}
+  with val y = for[B] {with limit[B](n + 1); do generate[B]()}
+  with val z = for[C] {with limit[C](n + 1); do generate[C]()}
+
+  try {
+    body(x, y, z)
+    if(successCounter == n) {
+      val duration = Duration::diff(startTime, bench::relativeTimestamp())
+      do successForall(name, n, duration) //the body didn't fail for any of the generated values -> success
+      do stop() // TODO why necessary?
+      }
+  } with Assertion { 
+    def assert(condition, msg) = 
+      if (condition) {
+        successCounter = successCounter + 1 
+        resume(())
+        }
+      else {// the body fails for one generated value -> failure
+        val duration = Duration::diff(startTime, bench::relativeTimestamp())
+        do failureForall(name, successCounter, msg ++ "  failed on inputs:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y) ++ "\n    3. " ++ genericShow(z), duration)
+        do stop()
+      }
+  }
+}
+
+
+def exists[A](name: String, n: Int) 
+  { body: A => Unit / Assertion }: Unit / {Test, Generator[A]} = {
+
+  val startTime = bench::relativeTimestamp()
+  var triedCounter = 0
+  with boundary
+  with val x = for[A] {with limit[A](n + 1); do generate[A]()}
+
+  try {
+    body(x)
+    if(triedCounter == n){
+      val duration = Duration::diff(startTime, bench::relativeTimestamp())
+      do failureExists(name, triedCounter, duration) 
+    }
+  } with Assertion { 
+    def assert(condition, msg) = 
+      if (condition) {
+        val duration = Duration::diff(startTime, bench::relativeTimestamp())
+        do successExists(name, triedCounter, " Found example value " ++ genericShow(x), duration)
+        do stop()
+        }
+      else {// the body fails for one generated value -> continue searching
+        triedCounter = triedCounter + 1 
+        resume(())
+      }
+  }
+}
+
+def exists[A, B](name: String, n: Int) 
+  { body: (A, B) => Unit / Assertion }: Unit / {Test, Generator[A], Generator[B]} = {
+
+  val startTime = bench::relativeTimestamp()
+  var triedCounter = 0
+  with boundary
+  with val x = for[A] {with limit[A](n + 1); do generate[A]()}
+  with val y = for[B] {with limit[B](n + 1); do generate[B]()}
+
+  try {
+    body(x, y)
+    if(triedCounter == n){
+      val duration = Duration::diff(startTime, bench::relativeTimestamp())
+      do failureExists(name, triedCounter, duration)
+    } 
+  } with Assertion { 
+    def assert(condition, msg) = 
+      if (condition) {
+        val duration = Duration::diff(startTime, bench::relativeTimestamp())
+        do successExists(name, triedCounter, " Found example values:\n    1. " ++ genericShow(x) ++ "\n    2. " ++ genericShow(y), duration)
+        do stop()
+        }
+      else {// the body fails for one generated value -> continue searching
+        triedCounter = triedCounter + 1 
+        resume(())
+      }
+  }
+}
+
+/// Run a test suite with a given `name`.
+/// - If `printTimes` is `true` (or missing), prints out time in milliseconds.
+/// - Formats automatically using ANSI escapes.
+/// - Returns `true` if all tests succeed, otherwise returns `false`. If you want to exit the program on failure, see `mainSuite`.
+///
+/// Example:
+/// ```effekt
+/// suite("My Tests") {
+///   test("1 + 1 == 2") {
+///     assertEqual(1 + 1, 2)
+///   }
+/// }
+/// ```
+def suite(name: String, printTimes: Bool) { body: => Unit / { Test, Formatted } }: Bool / {} = {
+  println("here")
+  with Formatted::formatting;
+
+  def ms(duration: Int): String / Formatted =
+    if (printTimes) {
+      " " ++ ("[" ++ bench::formatMs(duration) ++ "]").dim
+    } else {
+      ""
+    }
+
+  def dimWhenZeroElse(s: String, n: Int) { colorIfNonZero: String => String / Formatted } =
+    if (n == 0) { dim(s) }
+    else { colorIfNonZero(s) }
+
+  var failedUnit = 0
+  var passedUnit = 0
+  var failedForall = 0
+  var passedForall = 0
+  var failedExists = 0
+  var passedExists = 0
+  // TODO check if computing time works correctly
+
+  // 1) Print the name of the test
+  println(name.bold)
+
+  // 2) Run the tests, timing them
+  val totalDuration = timed {
+    try { body() } with Test {
+      // 2a) Handle a passing unit test on success
+      def successUnit(name, duration) = {
+        passedUnit = passedUnit + 1
+        println("✓".green ++ " " ++ name ++ duration.ms)
+        resume(())
+      }
+
+      // 2b) Handle a failing unit test on failure, additionally printing its message
+      def failureUnit(name, msg, duration) = {
+        failedUnit = failedUnit + 1
+        println("✕".red ++ " " ++ name ++ duration.ms)
+        println("  " ++ msg.red)
+        resume(())
+      }
+
+      // 2c) Handle a passing forall test on success
+      def successForall(name, passed, duration) = {
+        passedForall = passedForall + 1
+        println("✓".green ++ " " ++ name ++ ", passed " ++ passed.show ++ " tests " ++ duration.ms)
+        resume(())
+      }
+
+      // 2d) Handle a failing forall test on failure, additionally printing its message
+      def failureForall(name, passed, msg, duration) = {
+        failedForall = failedForall + 1
+        println("✕".red ++ " " ++ name ++ duration.ms)
+        if(passed == 1){
+          println("  ! Falsified after " ++ show(passed).red ++ " passed test:" ++ duration.ms)
+          } else {println("  ! Falsified after " ++ show(passed).red ++ " passed tests:" ++ duration.ms)}
+        println("  " ++ msg.red)
+        resume(())
+      }
+
+      // 2e) Handle a passing exists test on success
+      def successExists(name, tried, msg, duration) = {
+        passedExists = passedExists + 1
+        //println("✓".green ++ " " ++ name ++ ", found after " ++ tried.show ++ " tests " ++ duration.ms)
+        println("✓".green ++ " " ++ name  ++ duration.ms)
+        if(tried == 1){
+          println(" Found value after " ++ tried.show ++ " tried input")
+        } else {println(" Found value after " ++ tried.show ++ " tried inputs")}
+        println(msg)
+        resume(())
+      }
+
+      // 2f) Handle a failing exists test on failure, additionally printing its message
+      def failureExists(name, tried, duration) = {
+        failedExists = failedExists + 1
+        println("✕".red ++ " " ++ name ++ duration.ms)
+        println(" Tried " ++ tried.show ++ " different inputs but all failed" ++ duration.ms)
+        resume(())
+      }
+    }
+  }
+
+  // 3) Format the test results
+  println(" ")
+  println(" " ++ (show(passedUnit + passedForall + passedExists) ++ " pass").dimWhenZeroElse(passedUnit + passedForall + passedExists) { green })
+  println(" " ++ (show(failedUnit + failedForall + failedExists) ++ " fail").dimWhenZeroElse(failedUnit + failedForall + failedExists) { red })
+  println(" " ++ (passedUnit + failedUnit + passedForall + failedForall + passedExists + failedExists).show ++ " test(s) total" ++ totalDuration.ms)
+
+  println("")
+
+  // 4) Return true if all tests succeeded, otherwise false
+  return failedUnit == 0 && failedForall == 0 && failedExists == 0 
+}
+
+/// See `suite` above.
+def suite(name: String) { body: => Unit / { Test, Formatted } }: Bool / {} =
+  suite(name, true) { body }
+
+/// Use as `def main() = mainSuite("...") { ... }`
+/// Recommended for standalone test files ran by CI.
+///
+/// Exits after running all tests:
+/// - if all tests succeed, exits the program with success (exit code 0)
+/// - otherwise exits the program with failure (exit code 1)
+def mainSuite(name: String) { body: => Unit / { Test, Formatted } }: Unit = {
+  val result = suite(name, true) { body }
+  val exitCode = if (result) 0 else 1
+  exit(exitCode)
+}
+
+def main() = {println("main")}
